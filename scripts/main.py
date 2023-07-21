@@ -22,6 +22,7 @@ table_to_file_name_map = {
     "account_values": "account_values",
     "asset_ctxs": "asset_ctxs",
     "market_data": "market_data",
+    "total_accrued_fees": "total_accrued_fees",
 }
 
 # Load configuration from JSON file
@@ -323,6 +324,12 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
             df_agg["time"] = date
             df_agg.to_sql(
                 "asset_ctxs_cache", con=engine, if_exists="append", index=False
+            )
+
+        elif "total_accrued_fees" in file_name:
+            df["time"] = date
+            df.to_sql(
+                "total_accrued_fees_cache", con=engine, if_exists="append", index=False
             )
 
 
