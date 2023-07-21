@@ -1335,7 +1335,7 @@ async def get_daily_unique_users_by_coin(
 
 @app.get("/hyperliquid/total_volume")
 @measure_api_latency(endpoint="total_volume")
-async def get_open_interest(
+async def get_total_volume(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     coins: Optional[List[str]] = None,
