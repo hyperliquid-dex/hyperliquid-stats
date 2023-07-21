@@ -42,6 +42,7 @@ account_values_cache = Table("account_values_cache", metadata, autoload_with=eng
 funding_cache = Table("funding_cache", metadata, autoload_with=engine)
 asset_ctxs_cache = Table("asset_ctxs_cache", metadata, autoload_with=engine)
 market_data_cache = Table("market_data_cache", metadata, autoload_with=engine)
+total_accrued_fees_cache = Table("total_accrued_fees_cache", metadata, autoload_with=engine)
 
 hlp_vault_addresses = [
     "0xdfc24b077bc1425ad1dea75bcb6f8158e10df303",
@@ -1009,6 +1010,65 @@ async def get_cumulative_hlp_liquidator_pnl(
     return {"chart_data": chart_data}
 
 
+@app.get("/hyperliquid/total_accrued_fees")
+@measure_api_latency(endpoint="total_accrued_fees")
+async def get_total_accrued_fees(
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+):
+    # Create unique key using filters and endpoint name
+    key = f"total_accrued_fees_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
+    async with database.transaction():
+        # Include only vault addresses
+        subquery = (
+            select(
+                [
+                    total_accrued_fees_cache.c.time,
+                    total_accrued_fees_cache.c.total_accrued_fees,
+                    func.lag(total_accrued_fees_cache.c.total_accrued_fees)
+                    .over(order_by=total_accrued_fees_cache.c.time)
+                    .label("previous_total_accrued_fees"),
+                ]
+            )
+            .order_by(total_accrued_fees_cache.c.time)
+            .alias("subquery")
+        )
+
+        query = (
+            select(
+                [
+                    subquery.c.time,
+                    func.sum(
+                        subquery.c.total_accrued_fees
+                        - subquery.c.previous_total_accrued_fees
+                    )
+                    .over(order_by=subquery.c.time)
+                    .label("cumulative_total_accrued_fees"),
+                ]
+            )
+            .distinct(subquery.c.time)
+            .select_from(subquery)
+        )
+
+        query = apply_filters(query, subquery, start_date, end_date, None)
+
+        results = await database.fetch_all(query)
+        chart_data = [{"time": row[0], "cumulative_total_accrued_fees": row[1]} for row in results]
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
+
+
+
+
 @app.get("/hyperliquid/cumulative_liquidated_notional")
 @measure_api_latency(endpoint="cumulative_liquidated_notional")
 async def get_cumulative_liquidated_notional(
@@ -1266,6 +1326,51 @@ async def get_daily_unique_users_by_coin(
                     "percentage_of_total_users": percentage_of_total_users,
                 }
             )
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
+
+
+@app.get("/hyperliquid/total_volume")
+@measure_api_latency(endpoint="total_volume")
+async def get_total_volume(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    coins: Optional[List[str]] = None,
+):
+    # Create unique key using filters and endpoint name
+    key = f"total_volume_{start_date}_{end_date}_{coins}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
+    async with database.transaction():
+        query = (
+            select(
+                asset_ctxs_cache.c.time,
+                asset_ctxs_cache.c.coin,
+                (func.sum(asset_ctxs_cache.c.sum_day_ntl_vlm)).label("total_volume"),
+            )
+            .group_by(
+                asset_ctxs_cache.c.time,
+                asset_ctxs_cache.c.coin,
+            )
+            .order_by(asset_ctxs_cache.c.time)
+        )
+        query = apply_filters(query, asset_ctxs_cache, start_date, end_date, coins)
+        results = await database.fetch_all(query)
+        chart_data = [
+            {
+                "time": row["time"],
+                "coin": row["coin"],
+                "total_volume": row["total_volume"],
+            }
+            for row in results
+        ]
 
     # Cache result
     add_data_to_cache(key, chart_data)
