@@ -1099,7 +1099,6 @@ async def get_hlp_positions(
         query = apply_filters(query, hlp_positions_cache, start_date, end_date, coins)
 
         results = await database.fetch_all(query)
-        print("RESULTS", results)
         chart_data = [{"time": row[0], "coin": row[1], "daily_ntl": row[2], "daily_ntl_abs": row[3]} for row in results]
 
     # Cache result
