@@ -77,7 +77,7 @@ def update_db_table(db_uri: str, table_name: str, df: pd.DataFrame, date):
     engine = create_engine(db_uri)
     # Clear subset of cache table for that date. This is called once per date
     # per cache table
-    if "cache" in table_name:
+    if "cache" in table_name and "market_data" not in table_name:
         fmt_date = date.strftime("%Y-%m-%d")
         try:
             engine.execute(f"DELETE FROM {table_name} where time = '{fmt_date}'")
