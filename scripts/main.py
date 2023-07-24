@@ -23,6 +23,7 @@ table_to_file_name_map = {
     "asset_ctxs": "asset_ctxs",
     "market_data": "market_data",
     "total_accrued_fees": "total_accrued_fees",
+    "hlp_positions": "hlp_positions",
 }
 
 # Load configuration from JSON file
@@ -199,6 +200,33 @@ def update_market_data_cache(db_uri: str, date: datetime.date, file_name: str):
     aggregated_df.to_sql("market_data_cache", con=engine, if_exists="append", index=False)
 
 
+def generate_hlp_positions(date: datetime.date):
+    asset_ctx_fln = f"asset_ctxs/{date.strftime('%Y%m%d')}.csv.lz4"
+    hlp_fln = f"hlp_positions/{date.strftime('%Y%m%d')}.csv.lz4"
+
+    with lz4.frame.open(f"../tmp/{asset_ctx_fln}", "r") as f:
+        asset_ctx_df = pd.read_csv(f)
+    with lz4.frame.open(f"../tmp/{hlp_fln}", "r") as f:
+        hlp_df = pd.read_csv(f)
+
+    asset_ctx_df = asset_ctx_df[["time", "coin", "oracle_px"]]
+    asset_ctx_df = asset_ctx_df.set_index("time")
+    hlp_df = hlp_df.set_index("time")
+    df = asset_ctx_df.join(hlp_df, how="right")
+
+    def ntl(row):
+        return row[row["coin"]] * row["oracle_px"]
+
+    df["ntl"] = df.apply(lambda row: ntl(row), axis=1)
+    df["ntl_abs"] = df["ntl"].abs()
+
+    df = df[["coin", "ntl", "ntl_abs"]]
+    df = df.groupby(["coin"]).agg({"ntl": "mean", "ntl_abs": "mean"})
+    df = df.reset_index()
+    df["time"] = date
+    return df
+
+
 def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
     # Reads the file saved by s3 of date and cache table with the new data
     if "market_data" in file_name:
@@ -332,16 +360,28 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
                 "total_accrued_fees_cache", con=engine, if_exists="append", index=False
             )
 
+        elif "hlp_positions" in file_name:
+            df = generate_hlp_positions(date)
+            df.to_sql(
+                "hlp_positions_cache", con=engine, if_exists="append", index=False
+            )
+
 
 def process_file(
     db_uri: str, bucket_name: str, file_name: str, table: str, date: datetime.date
 ):
+    if "hlp_positions" in table:
+        asset_ctxs_fln = f"asset_ctxs/{date.strftime('%Y%m%d')}.csv.lz4"
+        download_data_from_s3(bucket_name, asset_ctxs_fln)
+
     download_data_from_s3(bucket_name, file_name)
     load_data_to_db(db_uri, table, file_name)
     update_cache_tables(db_uri, file_name, date)
     tmp_file_path = os.path.join("../tmp", file_name)
     if os.path.isfile(tmp_file_path):
         os.remove(tmp_file_path)
+        if "hlp_positions" in table:
+            os.remove(os.path.join("../tmp", asset_ctxs_fln))
     else:
         raise Exception(f"Error: {tmp_file_path} not found")
 

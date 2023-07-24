@@ -43,6 +43,7 @@ funding_cache = Table("funding_cache", metadata, autoload_with=engine)
 asset_ctxs_cache = Table("asset_ctxs_cache", metadata, autoload_with=engine)
 market_data_cache = Table("market_data_cache", metadata, autoload_with=engine)
 total_accrued_fees_cache = Table("total_accrued_fees_cache", metadata, autoload_with=engine)
+hlp_positions_cache = Table("hlp_positions_cache", metadata, autoload_with=engine)
 
 hlp_vault_addresses = [
     "0xdfc24b077bc1425ad1dea75bcb6f8158e10df303",
@@ -1067,6 +1068,42 @@ async def get_total_accrued_fees(
     return {"chart_data": chart_data}
 
 
+@app.get("/hyperliquid/hlp_positions")
+@measure_api_latency(endpoint="hlp_positions")
+async def get_hlp_positions(
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+):
+    # Create unique key using filters and endpoint name
+    key = f"hlp_positions_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
+    async with database.transaction():
+        query = (
+            select(
+                [
+                    hlp_positions_cache.c.time,
+                    hlp_positions_cache.c.coin,
+                    hlp_positions_cache.c.ntl,
+                    hlp_positions_cache.c.ntl_abs,
+                ]
+            )
+            .order_by(hlp_positions_cache.c.time)
+        )
+
+        query = apply_filters(query, hlp_positions_cache, start_date, end_date, None)
+
+        results = await database.fetch_all(query)
+        chart_data = [{"time": row[0], "coin": row[1], "daily_ntl": row[2], "daily_ntl_abs": row[3]} for row in results]
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
 
 
 @app.get("/hyperliquid/cumulative_liquidated_notional")
