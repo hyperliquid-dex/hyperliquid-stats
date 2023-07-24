@@ -10,6 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.sql import text
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
+from typing import Optional, List
 
 path = os.path.dirname(os.path.abspath(__file__))
 slack_alerts_channel = "#hyperliquid-alerts"
@@ -46,6 +47,28 @@ def get_asset_coin_map() -> dict[int, str]:
     return asset_coin_map
 
 
+def get_base_indices(file_name):
+    if "asset_ctxs" in file_name:
+        return ["time", "coin"]
+    elif "total_accrued_fees" in file_name:
+        return ["time"]
+    elif "hlp_positions" in file_name:
+        return ["time"]
+    return None
+
+
+def get_cache_indices(file_name):
+    if "market_data" in file_name:
+        return ["time", "coin"]
+    elif "asset_ctxs" in file_name:
+        return ["time", "coin"]
+    elif "total_accrued_fees" in file_name:
+        return ["time"]
+    elif "hlp_positions" in file_name:
+        return ["time", "coin"]
+    return None
+
+
 def download_data_from_s3(bucket_name: str, file_name: str):
     aws_access_key_id = config["aws_access_key_id"]
     aws_secret_access_key = config["aws_secret_access_key"]
@@ -70,8 +93,24 @@ def load_data_to_db(db_uri: str, table_name: str, file_name: str):
     with lz4.frame.open(f"../tmp/{file_name}", "r") as f:
         df = pd.read_csv(f)
 
+    base_indices = get_base_indices(file_name)
+    if not base_indices:
+        df.to_sql(table_name, con=engine, if_exists="append", index=False)
+    else:
+        update_db_table(db_uri, table_name, df, get_base_indices(file_name))
+
+
+def update_db_table(db_uri: str, table_name: str, df: pd.DataFrame, keys: Optional[List[str]]):
     engine = create_engine(db_uri)
-    df.to_sql(table_name, con=engine, if_exists="append", index=False)
+    df = df.set_index(keys)
+    try:
+        data = pd.read_sql(f"SELECT * FROM {table_name}", con=engine)
+        data = data.set_index(keys)
+        data = pd.concat([data, df])
+        data = data[~data.index.duplicated(keep="first")]
+        data.to_sql(table_name, con=engine, if_exists="replace", index_label=keys)
+    except Exception as e:
+        df.to_sql(table_name, con=engine, if_exists="append", index_label=keys)
 
 
 def get_latest_date(db_uri: str, table_name: str) -> datetime.datetime:
@@ -85,6 +124,7 @@ def get_latest_date(db_uri: str, table_name: str) -> datetime.datetime:
 
 
 def send_alert(message: str):
+    print("Alert:", message)
     return
     slack_token = config["slack_token"]
     if slack_token != "":
@@ -197,7 +237,7 @@ def update_market_data_cache(db_uri: str, date: datetime.date, file_name: str):
         mid_price=('mid', lambda x: x.mean()),
     )
     aggregated_df = aggregated_df.reset_index()
-    aggregated_df.to_sql("market_data_cache", con=engine, if_exists="append", index=False)
+    update_db_table(db_uri, "market_data_cache", aggregated_df, get_cache_indices("market_data"))
 
 
 def generate_hlp_positions(date: datetime.date):
@@ -350,21 +390,15 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
                 "avg_impact_ask_px",
             ]
             df_agg["time"] = date
-            df_agg.to_sql(
-                "asset_ctxs_cache", con=engine, if_exists="append", index=False
-            )
+            update_db_table(db_uri, "asset_ctxs_cache", df_agg, get_cache_indices(file_name))
 
         elif "total_accrued_fees" in file_name:
             df["time"] = date
-            df.to_sql(
-                "total_accrued_fees_cache", con=engine, if_exists="append", index=False
-            )
+            update_db_table(db_uri, "total_accrued_fees_cache", df, get_cache_indices(file_name))
 
         elif "hlp_positions" in file_name:
             df = generate_hlp_positions(date)
-            df.to_sql(
-                "hlp_positions_cache", con=engine, if_exists="append", index=False
-            )
+            update_db_table(db_uri, "hlp_positions_cache", df, get_cache_indices(file_name))
 
 
 def process_file(
@@ -386,6 +420,16 @@ def process_file(
         raise Exception(f"Error: {tmp_file_path} not found")
 
 
+def market_data_exists(db_uri, date):
+    engine = create_engine(db_uri)
+    fmt_date = date.strftime('%Y-%m-%d')
+    try:
+        df = pd.read_sql(f"SELECT * FROM market_data_cache where time = '{fmt_date}' LIMIT 1", con=engine)
+        return len(df) > 0
+    except Exception as e:
+        return False
+
+
 def main():
     bucket_name = config["bucket_name"]
     db_uri = config["db_uri"]
@@ -395,10 +439,11 @@ def main():
     for table in tables:
         table_name = table_to_file_name_map[table]
         latest_date = get_latest_date(db_uri, f'{table}_cache')
+        latest_date = None
         if isinstance(latest_date, datetime.datetime):
             latest_date = latest_date.date()
         elif not latest_date:
-            latest_date = datetime.date.today() - datetime.timedelta(days=75)
+            latest_date = datetime.date.today() - datetime.timedelta(days=5)
 
         dates = generate_dates(latest_date)
         if not len(dates):
@@ -407,6 +452,9 @@ def main():
         for date in dates[1:]:
             try:
                 if table_name == "market_data":
+                    if market_data_exists(db_uri, date):
+                        send_alert(f"Market data already exists for {date}")
+                        continue
                     for i in range(24):
                         for asset in asset_coin_map.values():
                             try:
