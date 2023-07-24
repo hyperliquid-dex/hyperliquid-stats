@@ -1073,10 +1073,9 @@ async def get_total_accrued_fees(
 async def get_hlp_positions(
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
-        coins: Optional[List[str]] = Query(None),
 ):
     # Create unique key using filters and endpoint name
-    key = f"hlp_positions_{start_date}_{end_date}_{coins}"
+    key = f"hlp_positions_{start_date}_{end_date}"
 
     # Check if the data exists in the cache
     cached_data = get_data_from_cache(key)
@@ -1096,7 +1095,7 @@ async def get_hlp_positions(
             .order_by(hlp_positions_cache.c.time)
         )
 
-        query = apply_filters(query, hlp_positions_cache, start_date, end_date, coins)
+        query = apply_filters(query, hlp_positions_cache, start_date, end_date, None)
 
         results = await database.fetch_all(query)
         chart_data = [{"time": row[0], "coin": row[1], "daily_ntl": row[2], "daily_ntl_abs": row[3]} for row in results]
