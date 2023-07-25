@@ -1047,6 +1047,45 @@ async def get_total_accrued_fees(
     return {"chart_data": chart_data}
 
 
+@app.get("/hyperliquid/asset_ctxs")
+@measure_api_latency(endpoint="asset_ctxs")
+async def get_asset_ctxs(
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        coins: Optional[List[str]] = Query(None),
+):
+    # Create unique key using filters and endpoint name
+    key = f"asset_ctxs_{start_date}_{end_date}"
+
+    # Check if the data exists in the cache
+    cached_data = get_data_from_cache(key)
+    if cached_data:
+        return {"chart_data": cached_data}
+
+    async with database.transaction():
+        query = (
+            select(
+                [
+                    asset_ctxs_cache.c.time,
+                    asset_ctxs_cache.c.coin,
+                    asset_ctxs_cache.c.avg_oracle_px,
+                    asset_ctxs_cache.c.avg_open_interest,
+                ]
+            )
+            .order_by(asset_ctxs_cache.c.time)
+        )
+
+        query = apply_filters(query, asset_ctxs_cache, start_date, end_date, coins)
+
+        results = await database.fetch_all(query)
+        chart_data = [{"time": row[0], "coin": row[1], "avg_oracle_px": row[2], "avg_open_interest": row[3]} for row in results]
+
+    # Cache result
+    add_data_to_cache(key, chart_data)
+
+    return {"chart_data": chart_data}
+
+
 @app.get("/hyperliquid/hlp_positions")
 @measure_api_latency(endpoint="hlp_positions")
 async def get_hlp_positions(
