@@ -63,15 +63,34 @@ def download_data_from_s3(bucket_name: str, file_name: str):
     my_bucket.download_file(file_name, local_file_path)
 
 
-def load_data_to_db(db_uri: str, table_name: str, file_name: str):
+def load_data_to_db(db_uri: str, table_name: str, file_name: str, date: datetime.date):
     if "market_data" in file_name:
         return
 
     with lz4.frame.open(f"../tmp/{file_name}", "r") as f:
         df = pd.read_csv(f)
 
+    update_db_table(db_uri, table_name, df, date)
+
+
+def update_db_table(db_uri: str, table_name: str, df: pd.DataFrame, date):
     engine = create_engine(db_uri)
-    df.to_sql(table_name, con=engine, if_exists="append", index=False)
+    # Clear subset of cache table for that date. This is called once per date
+    # per cache table
+    if "cache" in table_name and "market_data" not in table_name:
+        fmt_date = date.strftime("%Y-%m-%d")
+        try:
+            engine.execute(f"DELETE FROM {table_name} where time = '{fmt_date}'")
+        except Exception as e:
+            # table doesn't exist yet
+            pass
+
+    try:
+        df.to_sql(table_name, con=engine, if_exists="append")
+    except:
+        data = pd.read_sql(f"SELECT * FROM {table_name}", con=engine)
+        data = pd.concat([data, df])
+        data.to_sql(table_name, con=engine, if_exists="replace")
 
 
 def get_latest_date(db_uri: str, table_name: str) -> datetime.datetime:
@@ -85,7 +104,7 @@ def get_latest_date(db_uri: str, table_name: str) -> datetime.datetime:
 
 
 def send_alert(message: str):
-    return
+    print("Alert:", message)
     slack_token = config["slack_token"]
     if slack_token != "":
         client = WebClient(token=slack_token)
@@ -197,7 +216,7 @@ def update_market_data_cache(db_uri: str, date: datetime.date, file_name: str):
         mid_price=('mid', lambda x: x.mean()),
     )
     aggregated_df = aggregated_df.reset_index()
-    aggregated_df.to_sql("market_data_cache", con=engine, if_exists="append", index=False)
+    update_db_table(db_uri, "market_data_cache", aggregated_df, date)
 
 
 def generate_hlp_positions(date: datetime.date):
@@ -257,20 +276,13 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
             )["user"].transform("count")
             df_agg["time"] = date
             df_agg["usd_volume"] = df_agg["mean_px"] * df_agg["sum_sz"]
-            df_agg.to_sql(
-                "non_mm_trades_cache", con=engine, if_exists="append", index=False
-            )
+            update_db_table(db_uri, "non_mm_trades_cache", df_agg, date)
 
         elif "ledger_updates" in file_name:
             df_agg = df.groupby(["user"]).agg({"delta_usd": "sum"}).reset_index()
             df_agg.columns = ["user", "sum_delta_usd"]
             df_agg["time"] = date
-            df_agg.to_sql(
-                "non_mm_ledger_updates_cache",
-                con=engine,
-                if_exists="append",
-                index=False,
-            )
+            update_db_table(db_uri, "non_mm_ledger_updates_cache", df_agg, date)
 
         elif "liquidations" in file_name:
             df_agg = (
@@ -285,9 +297,7 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
                 "sum_liquidated_account_value",
             ]
             df_agg["time"] = date
-            df_agg.to_sql(
-                "liquidations_cache", con=engine, if_exists="append", index=False
-            )
+            update_db_table(db_uri, "liquidations_cache", df_agg, date)
 
         elif "funding" in file_name:
             df_agg = (
@@ -297,7 +307,7 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
             )
             df_agg.columns = ["coin", "sum_funding", "sum_premium"]
             df_agg["time"] = date
-            df_agg.to_sql("funding_cache", con=engine, if_exists="append", index=False)
+            update_db_table(db_uri, "funding_cache", df_agg, date)
 
         elif "account_values" in file_name:
             df_agg = (
@@ -313,9 +323,7 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
                 "last_cum_ledger",
             ]
             df_agg["time"] = date
-            df_agg.to_sql(
-                "account_values_cache", con=engine, if_exists="append", index=False
-            )
+            update_db_table(db_uri, "account_values_cache", df_agg, date)
 
         elif "asset_ctxs" in file_name:
             df_agg = (
@@ -350,21 +358,15 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
                 "avg_impact_ask_px",
             ]
             df_agg["time"] = date
-            df_agg.to_sql(
-                "asset_ctxs_cache", con=engine, if_exists="append", index=False
-            )
+            update_db_table(db_uri, "asset_ctxs_cache", df_agg, date)
 
         elif "total_accrued_fees" in file_name:
             df["time"] = date
-            df.to_sql(
-                "total_accrued_fees_cache", con=engine, if_exists="append", index=False
-            )
+            update_db_table(db_uri, "total_accrued_fees_cache", df, date)
 
         elif "hlp_positions" in file_name:
             df = generate_hlp_positions(date)
-            df.to_sql(
-                "hlp_positions_cache", con=engine, if_exists="append", index=False
-            )
+            update_db_table(db_uri, "hlp_positions_cache", df, date)
 
 
 def process_file(
@@ -375,7 +377,7 @@ def process_file(
         download_data_from_s3(bucket_name, asset_ctxs_fln)
 
     download_data_from_s3(bucket_name, file_name)
-    load_data_to_db(db_uri, table, file_name)
+    load_data_to_db(db_uri, table, file_name, date)
     update_cache_tables(db_uri, file_name, date)
     tmp_file_path = os.path.join("../tmp", file_name)
     if os.path.isfile(tmp_file_path):
@@ -386,6 +388,21 @@ def process_file(
         raise Exception(f"Error: {tmp_file_path} not found")
 
 
+def market_data_exists(db_uri, date):
+    engine = create_engine(db_uri)
+    fmt_date = date.strftime('%Y-%m-%d')
+    try:
+        df = pd.read_sql(f"SELECT * FROM market_data_cache where time = '{fmt_date}' LIMIT 1", con=engine)
+        return len(df) > 0
+    except Exception as e:
+        return False
+
+
+def drop_base_table(db_uri, table):
+    engine = create_engine(db_uri)
+    engine.execute(f"DROP TABLE IF EXISTS {table}")
+
+
 def main():
     bucket_name = config["bucket_name"]
     db_uri = config["db_uri"]
@@ -393,6 +410,7 @@ def main():
     asset_coin_map = get_asset_coin_map()
 
     for table in tables:
+        drop_base_table(db_uri, table)
         table_name = table_to_file_name_map[table]
         latest_date = get_latest_date(db_uri, f'{table}_cache')
         if isinstance(latest_date, datetime.datetime):
@@ -407,6 +425,9 @@ def main():
         for date in dates[1:]:
             try:
                 if table_name == "market_data":
+                    if market_data_exists(db_uri, date):
+                        send_alert(f"Market data already exists for {date}")
+                        continue
                     for i in range(24):
                         for asset in asset_coin_map.values():
                             try:
