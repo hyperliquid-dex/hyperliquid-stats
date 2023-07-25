@@ -1055,7 +1055,7 @@ async def get_asset_ctxs(
         coins: Optional[List[str]] = Query(None),
 ):
     # Create unique key using filters and endpoint name
-    key = f"asset_ctxs_{start_date}_{end_date}"
+    key = f"asset_ctxs_{start_date}_{end_date}_{coins}"
 
     # Check if the data exists in the cache
     cached_data = get_data_from_cache(key)
