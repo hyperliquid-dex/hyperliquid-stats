@@ -1026,41 +1026,20 @@ async def get_total_accrued_fees(
         return {"chart_data": cached_data}
 
     async with database.transaction():
-        # Include only vault addresses
-        subquery = (
+        query = (
             select(
                 [
                     total_accrued_fees_cache.c.time,
                     total_accrued_fees_cache.c.total_accrued_fees,
-                    func.lag(total_accrued_fees_cache.c.total_accrued_fees)
-                    .over(order_by=total_accrued_fees_cache.c.time)
-                    .label("previous_total_accrued_fees"),
                 ]
             )
             .order_by(total_accrued_fees_cache.c.time)
-            .alias("subquery")
         )
 
-        query = (
-            select(
-                [
-                    subquery.c.time,
-                    func.sum(
-                        subquery.c.total_accrued_fees
-                        - subquery.c.previous_total_accrued_fees
-                    )
-                    .over(order_by=subquery.c.time)
-                    .label("cumulative_total_accrued_fees"),
-                ]
-            )
-            .distinct(subquery.c.time)
-            .select_from(subquery)
-        )
-
-        query = apply_filters(query, subquery, start_date, end_date, None)
+        query = apply_filters(query, total_accrued_fees_cache, start_date, end_date, None)
 
         results = await database.fetch_all(query)
-        chart_data = [{"time": row[0], "cumulative_total_accrued_fees": row[1]} for row in results]
+        chart_data = [{"time": row[0], "daily_accrued_fees": row[1]} for row in results]
 
     # Cache result
     add_data_to_cache(key, chart_data)
