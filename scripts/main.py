@@ -89,7 +89,6 @@ def update_db_table(db_uri: str, table_name: str, df: pd.DataFrame, date):
         df.to_sql(table_name, con=engine, if_exists="append")
     except:
         data = pd.read_sql(f"SELECT * FROM {table_name}", con=engine)
-        print("before", date)
         data = pd.concat([data, df], ignore_index=True)
         if 'level_0' in data.columns:
             data = data.drop('level_0', axis=1)
