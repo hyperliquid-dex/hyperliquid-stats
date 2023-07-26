@@ -1411,7 +1411,7 @@ async def get_total_volume(
             select(
                 asset_ctxs_cache.c.time,
                 asset_ctxs_cache.c.coin,
-                (func.sum(asset_ctxs_cache.c.sum_day_ntl_vlm)).label("total_volume"),
+                (func.sum(asset_ctxs_cache.c.avg_day_ntl_vlm)).label("total_volume"),
             )
             .group_by(
                 asset_ctxs_cache.c.time,
