@@ -1072,6 +1072,7 @@ async def get_asset_ctxs(
                     asset_ctxs_cache.c.time,
                     asset_ctxs_cache.c.coin,
                     asset_ctxs_cache.c.avg_oracle_px,
+                    asset_ctxs_cache.c.first_oracle_px,
                     asset_ctxs_cache.c.avg_open_interest,
                 ]
             )
@@ -1081,7 +1082,7 @@ async def get_asset_ctxs(
         query = apply_filters(query, asset_ctxs_cache, start_date, end_date, coins)
 
         results = await database.fetch_all(query)
-        chart_data = [{"time": to_dt(row[0]), "coin": row[1], "avg_oracle_px": row[2], "avg_open_interest": row[3]} for row in results]
+        chart_data = [{"time": to_dt(row[0]), "coin": row[1], "avg_oracle_px": row[2], "first_oracle_px": row[3], "avg_open_interest": row[4]} for row in results]
 
     # Cache result
     add_data_to_cache(key, chart_data)
