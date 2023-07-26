@@ -126,12 +126,12 @@ def generate_dates(start_date: datetime.date):
     return date_list
 
 
-def calculate_slippage(row: dict, nominal_value: int):
+def calculate_slippage(row: dict, ntl_value: int):
     # Get the ask levels
     ask_levels = json.loads(row['levels'])[1]
 
-    # Calculate the total liquidity needed to fulfill the nominal value
-    total_liquidity_needed = nominal_value
+    # Calculate the total liquidity needed to fulfill the ntl value
+    total_liquidity_needed = ntl_value
 
     # Calculate the average executed price and slippage
     average_executed_price = 0
@@ -140,7 +140,7 @@ def calculate_slippage(row: dict, nominal_value: int):
         liquidity = float(level['px']) * float(level['sz'])
         price = float(level['px'])
         if filled_liquidity + liquidity >= total_liquidity_needed:
-            # Calculate the remaining liquidity needed to fulfill the nominal value
+            # Calculate the remaining liquidity needed to fulfill the ntl value
             remaining_liquidity = total_liquidity_needed - filled_liquidity
 
             # Calculate the liquidity percentage filled at the current level
@@ -200,12 +200,12 @@ def update_market_data_cache(db_uri: str, date: datetime.date, file_name: str):
     # Calculate the mid price
     df['mid'] = (df['highest_bid'] + df['lowest_ask']) / 2
 
-    nominal_values = [0.01, 1000, 3000, 10000]
+    ntl_values = [0.01, 1000, 3000, 10000, 30000, 100000]
 
-    # Calculate the slippage for each nominal value
-    for nominal_value in nominal_values:
-        slippage_column = f"slippage_{nominal_value}"
-        df[slippage_column] = df.apply(lambda row: calculate_slippage(row, nominal_value), axis=1)
+    # Calculate the slippage for each ntl value
+    for ntl_value in ntl_values:
+        slippage_column = f"slippage_{ntl_value}"
+        df[slippage_column] = df.apply(lambda row: calculate_slippage(row, ntl_value), axis=1)
 
     aggregated_df = df.groupby(['time', 'coin']).agg(
         median_liquidity=('liquidity', lambda x: x.median()),
@@ -213,6 +213,8 @@ def update_market_data_cache(db_uri: str, date: datetime.date, file_name: str):
         median_slippage_1000=('slippage_1000', lambda x: x.median()),
         median_slippage_3000=('slippage_3000', lambda x: x.median()),
         median_slippage_10000=('slippage_10000', lambda x: x.median()),
+        median_slippage_30000=('slippage_30000', lambda x: x.median()),
+        median_slippage_100000=('slippage_100000', lambda x: x.median()),
         mid_price=('mid', lambda x: x.mean()),
     )
     aggregated_df = aggregated_df.reset_index()
