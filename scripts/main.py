@@ -337,7 +337,7 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
                         "funding": "sum",
                         "open_interest": "mean",
                         "prev_day_px": "mean",
-                        "day_ntl_vlm": "mean",
+                        "day_ntl_vlm": "last",
                         "premium": "mean",
                         "oracle_px": ["mean", "first"],
                         "mark_px": "mean",
