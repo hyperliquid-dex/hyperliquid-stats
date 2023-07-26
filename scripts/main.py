@@ -89,7 +89,9 @@ def update_db_table(db_uri: str, table_name: str, df: pd.DataFrame, date):
         df.to_sql(table_name, con=engine, if_exists="append")
     except:
         data = pd.read_sql(f"SELECT * FROM {table_name}", con=engine)
-        data = pd.concat([data, df])
+        data = pd.concat([data, df], ignore_index=True)
+        if 'level_0' in data.columns:
+            data = data.drop('level_0', axis=1)
         data.to_sql(table_name, con=engine, if_exists="replace")
 
 
@@ -412,13 +414,13 @@ def main():
     asset_coin_map = get_asset_coin_map()
 
     for table in tables:
-        drop_base_table(db_uri, table)
         table_name = table_to_file_name_map[table]
         latest_date = get_latest_date(db_uri, f'{table}_cache')
         if isinstance(latest_date, datetime.datetime):
             latest_date = latest_date.date()
         elif not latest_date:
-            latest_date = datetime.date.today() - datetime.timedelta(days=75)
+            drop_base_table(db_uri, table)
+            latest_date = datetime.date.today() - datetime.timedelta(days=85)
 
         dates = generate_dates(latest_date)
         if not len(dates):
