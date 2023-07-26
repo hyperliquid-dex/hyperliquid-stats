@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, time as dtt
 from typing import Optional, List
 
 from cachetools import TTLCache
@@ -20,6 +20,9 @@ from sqlalchemy.sql.functions import coalesce
 from starlette.middleware.cors import CORSMiddleware
 
 from metrics import measure_api_latency, update_is_online
+
+def to_dt(date: datetime.date):
+    return datetime.combine(date, dtt.min)
 
 # Load configuration from JSON file
 with open("./config.json", "r") as config_file:
@@ -156,7 +159,7 @@ async def get_cumulative_chart_data(table, column, start_date, end_date, coins):
         # Convert the rows to a dictionary format for the response
         chart_data = [
             {
-                "time": row["time"],
+                "time": to_dt(row["time"]),
                 "cumulative": row["cumulative"],
             }
             for row in rows
@@ -357,7 +360,7 @@ async def get_daily_usd_volume(
         query = apply_filters(query, non_mm_trades_cache, start_date, end_date, coins)
         result = await database.fetch_all(query)
         chart_data = [
-            {"time": row["time"], "daily_usd_volume": row["daily_usd_volume"]}
+            {"time": to_dt(row["time"]), "daily_usd_volume": row["daily_usd_volume"]}
             for row in result
         ]
 
@@ -395,7 +398,7 @@ async def get_daily_usd_volume_by_coin(
         result = await database.fetch_all(query)
         chart_data = [
             {
-                "time": row["time"],
+                "time": to_dt(row["time"]),
                 "coin": row["coin"],
                 "daily_usd_volume": row["daily_usd_volume"],
             }
@@ -436,7 +439,7 @@ async def get_daily_usd_volume_by_crossed(
         result = await database.fetch_all(query)
         chart_data = [
             {
-                "time": row["time"],
+                "time": to_dt(row["time"]),
                 "crossed": row["crossed"],
                 "daily_usd_volume": row["daily_usd_volume"],
             }
@@ -551,7 +554,7 @@ async def get_daily_usd_volume_by_user(
         result = await database.fetch_all(query)
         chart_data = [
             {
-                "time": row["date"],
+                "time": to_dt(row["date"]),
                 "user": row["user"],
                 "daily_usd_volume": row["total_usd_volume"],
             }
@@ -616,7 +619,7 @@ async def get_daily_trades(
         query = apply_filters(query, non_mm_trades_cache, start_date, end_date, coins)
         result = await database.fetch_all(query)
         chart_data = [
-            {"time": row["time"], "daily_trades": row["daily_trades"]} for row in result
+            {"time": to_dt(row["time"]), "daily_trades": row["daily_trades"]} for row in result
         ]
 
     # Cache result
@@ -653,7 +656,7 @@ async def get_daily_trades_by_coin(
         result = await database.fetch_all(query)
         chart_data = [
             {
-                "time": row["time"],
+                "time": to_dt(row["time"]),
                 "coin": row["coin"],
                 "daily_trades": row["daily_trades"],
             }
@@ -694,7 +697,7 @@ async def get_daily_trades_by_crossed(
         result = await database.fetch_all(query)
         chart_data = [
             {
-                "time": row["time"],
+                "time": to_dt(row["time"]),
                 "crossed": row["crossed"],
                 "daily_trades": row["daily_trades"],
             }
@@ -809,7 +812,7 @@ async def get_daily_trades_by_user(
         result = await database.fetch_all(query)
         chart_data = [
             {
-                "time": row["date"],
+                "time": to_dt(row["date"]),
                 "user": row["user"],
                 "daily_group_count": row["total_group_count"],
             }
@@ -936,7 +939,7 @@ async def get_hlp_liquidator_pnl(
         query = apply_filters(query, subquery, start_date, end_date, None)
 
         results = await database.fetch_all(query)
-        chart_data = [{"time": row[0], "total_pnl": row[1]} for row in results]
+        chart_data = [{"time": to_dt(row[0]), "total_pnl": row[1]} for row in results]
 
     # Cache result
     add_data_to_cache(key, chart_data)
@@ -1003,7 +1006,7 @@ async def get_cumulative_hlp_liquidator_pnl(
         query = apply_filters(query, subquery, start_date, end_date, None)
 
         results = await database.fetch_all(query)
-        chart_data = [{"time": row[0], "cumulative_pnl": row[1]} for row in results]
+        chart_data = [{"time": to_dt(row[0]), "cumulative_pnl": row[1]} for row in results]
 
     # Cache result
     add_data_to_cache(key, chart_data)
@@ -1039,7 +1042,7 @@ async def get_total_accrued_fees(
         query = apply_filters(query, total_accrued_fees_cache, start_date, end_date, None)
 
         results = await database.fetch_all(query)
-        chart_data = [{"time": row[0], "daily_accrued_fees": row[1]} for row in results]
+        chart_data = [{"time": to_dt(row[0]), "daily_accrued_fees": row[1]} for row in results]
 
     # Cache result
     add_data_to_cache(key, chart_data)
@@ -1078,7 +1081,7 @@ async def get_asset_ctxs(
         query = apply_filters(query, asset_ctxs_cache, start_date, end_date, coins)
 
         results = await database.fetch_all(query)
-        chart_data = [{"time": row[0], "coin": row[1], "avg_oracle_px": row[2], "avg_open_interest": row[3]} for row in results]
+        chart_data = [{"time": to_dt(row[0]), "coin": row[1], "avg_oracle_px": row[2], "avg_open_interest": row[3]} for row in results]
 
     # Cache result
     add_data_to_cache(key, chart_data)
@@ -1116,7 +1119,7 @@ async def get_hlp_positions(
         query = apply_filters(query, hlp_positions_cache, start_date, end_date, None)
 
         results = await database.fetch_all(query)
-        chart_data = [{"time": row[0], "coin": row[1], "daily_ntl": row[2], "daily_ntl_abs": row[3]} for row in results]
+        chart_data = [{"time": to_dt(row[0]), "coin": row[1], "daily_ntl": row[2], "daily_ntl_abs": row[3]} for row in results]
 
     # Cache result
     add_data_to_cache(key, chart_data)
@@ -1178,7 +1181,7 @@ async def get_daily_notional_liquidated_total(
         results = await database.fetch_all(query)
         chart_data = [
             {
-                "time": row["time"],
+                "time": to_dt(row["time"]),
                 "daily_notional_liquidated": row["daily_notional_liquidated"],
             }
             for row in results
@@ -1220,7 +1223,7 @@ async def get_daily_notional_liquidated_by_leverage_type(
         results = await database.fetch_all(query)
         chart_data = [
             {
-                "time": row["time"],
+                "time": to_dt(row["time"]),
                 "leverage_type": row["leverage_type"],
                 "daily_notional_liquidated": row["daily_notional_liquidated"],
             }
@@ -1262,7 +1265,7 @@ async def get_daily_notional_liquidated_by_coin(
         results = await database.fetch_all(query)
         chart_data = [
             {
-                "time": row["time"],
+                "time": to_dt(row["time"]),
                 "coin": row["coin"],
                 "daily_notional_liquidated": row["daily_notional_liquidated"],
             }
@@ -1304,7 +1307,7 @@ async def get_daily_unique_users(
         query = apply_filters(query, non_mm_trades_cache, start_date, end_date, coins)
         results = await database.fetch_all(query)
         chart_data = [
-            {"time": row["time"], "daily_unique_users": row["daily_unique_users"]}
+            {"time": to_dt(row["time"]), "daily_unique_users": row["daily_unique_users"]}
             for row in results
         ]
 
@@ -1375,7 +1378,7 @@ async def get_daily_unique_users_by_coin(
             percentage_of_total_users = daily_unique_users / total_unique_users
             chart_data.append(
                 {
-                    "time": time,
+                    "time": to_dt(time),
                     "coin": coin,
                     "daily_unique_users": daily_unique_users,
                     "percentage_of_total_users": percentage_of_total_users,
@@ -1420,7 +1423,7 @@ async def get_total_volume(
         results = await database.fetch_all(query)
         chart_data = [
             {
-                "time": row["time"],
+                "time": to_dt(row["time"]),
                 "coin": row["coin"],
                 "total_volume": row["total_volume"],
             }
@@ -1466,7 +1469,7 @@ async def get_open_interest(
         results = await database.fetch_all(query)
         chart_data = [
             {
-                "time": row["time"],
+                "time": to_dt(row["time"]),
                 "coin": row["coin"],
                 "open_interest": row["open_interest"],
             }
@@ -1508,7 +1511,7 @@ async def get_funding_rate(
         results = await database.fetch_all(query)
         chart_data = [
             {
-                "time": row["time"],
+                "time": to_dt(row["time"]),
                 "coin": row["coin"],
                 "sum_funding": row["sum_funding"] * 365,
             }
@@ -1575,7 +1578,7 @@ async def get_cumulative_new_users(
         # Convert result to JSON-serializable format
         chart_data = [
             {
-                "time": row["date"],
+                "time": to_dt(row["date"]),
                 "daily_new_users": row["daily_new_users"],
                 "cumulative_new_users": row["cumulative_new_users"],
             }
@@ -1629,7 +1632,7 @@ async def get_cumulative_inflow(
 
         results = await database.fetch_all(cumulative_query)
         chart_data = [
-            {"time": row["time"], "cumulative_inflow": row["cumulative_inflow"]}
+            {"time": to_dt(row["time"]), "cumulative_inflow": row["cumulative_inflow"]}
             for row in results
         ]
 
@@ -1675,7 +1678,7 @@ async def get_daily_inflow(
         ).alias("inflows_per_day")
 
         results = await database.fetch_all(query)
-        chart_data = [{"time": row["time"], "inflow": row["inflow"]} for row in results]
+        chart_data = [{"time": to_dt(row["time"]), "inflow": row["inflow"]} for row in results]
 
     # Cache result
     add_data_to_cache(key, chart_data)
@@ -1736,7 +1739,7 @@ async def get_liquidity_by_coin(
 
             chart_data[coin].append(
                 {
-                    "time": row["time"],
+                    "time": to_dt(row["time"]),
                     "mid_price": row["mid_price"],
                     "median_liquidity": row["median_liquidity"],
                     "median_slippage_0": row["median_slippage_0"],
