@@ -72,7 +72,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-cache = TTLCache(maxsize=500, ttl=86400)
+cache = TTLCache(maxsize=500, ttl=3600)
 
 
 def get_data_from_cache(key):
