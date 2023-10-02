@@ -302,10 +302,18 @@ async def get_total_notional_liquidated(
     query = apply_filters(query, liquidations_cache, start_date, end_date)
     result = await database.fetch_one(query)
 
-    # Cache result
-    add_data_to_cache(key, result["total_notional_liquidated"])
+    query = select(
+        func.sum(non_mm_trades_cache.c.liquidated_volume).label(
+            "total_notional_liquidated"
+        )
+    ).select_from(non_mm_trades_cache)
+    query = apply_filters(query, non_mm_trades_cache, start_date, end_date)
+    result_extra = await database.fetch_one(query)
 
-    return {"total_notional_liquidated": result["total_notional_liquidated"]}
+    # Cache result
+    add_data_to_cache(key, result["total_notional_liquidated"] + result_extra["total_notional_liquidated"])
+
+    return {"total_notional_liquidated": result["total_notional_liquidated"] + result_extra["total_notional_liquidated"]}
 
 
 @app.get("/hyperliquid/cumulative_usd_volume")
@@ -1148,6 +1156,13 @@ async def get_cumulative_liquidated_notional(
             liquidations_cache, "sum_liquidated_ntl_pos", start_date, end_date, None
         )
 
+    async with database.transaction():
+        chart_data_extra = await get_cumulative_chart_data(
+            non_mm_trades_cache, "liquidated_volume", start_date, end_date, None
+        )
+
+    chart_data["sum_liquidated_ntl_pos"] += chart_data_extra["liquidated_volume"]
+
     # Cache result
     add_data_to_cache(key, chart_data)
 
@@ -1189,10 +1204,38 @@ async def get_daily_notional_liquidated_total(
             for row in results
         ]
 
-    # Cache result
-    add_data_to_cache(key, chart_data)
+    async with database.transaction():
+        query = (
+            select(
+                non_mm_trades_cache.c.time,
+                func.sum(non_mm_trades_cache.c.liquidated_volume).label(
+                    "daily_notional_liquidated"
+                ),
+            )
+            .group_by(non_mm_trades_cache.c.time)
+            .order_by(non_mm_trades_cache.c.time)
+        )
+        query = apply_filters(query, non_mm_trades_cache, start_date, end_date)
+        results = await database.fetch_all(query)
+        chart_data_extra = [
+            {
+                "time": to_dt(row["time"]),
+                "daily_notional_liquidated": row["daily_notional_liquidated"],
+            }
+            for row in results
+        ]
 
-    return {"chart_data": chart_data}
+    agg = []
+    for stats in chart_data:
+        for stats_extra in chart_data_extra:
+            if date == date_extra:
+                stats["daily_notional_liquidated"] += stats_extra["daily_notional_liquidated"]
+        agg.append(stats)
+
+    # Cache result
+    add_data_to_cache(key, agg)
+
+    return {"chart_data": agg}
 
 
 @app.get("/hyperliquid/daily_notional_liquidated_by_leverage_type")
@@ -1232,10 +1275,45 @@ async def get_daily_notional_liquidated_by_leverage_type(
             for row in results
         ]
 
-    # Cache result
-    add_data_to_cache(key, chart_data)
+    async with database.transaction():
+        query = (
+            select(
+                non_mm_trades_cache.c.time,
+                non_mm_trades_cache.c.leverage_type,
+                func.sum(non_mm_trades_cache.c.liquidated_cross_volume).label(
+                    "daily_notional_liquidated_cross"
+                ),
+                func.sum(non_mm_trades_cache.c.liquidated_isolated_volume).label(
+                    "daily_notional_liquidated_isolated"
+                ),
+            )
+            .order_by(non_mm_trades_cache.c.time)
+        )
+        query = apply_filters(query, non_mm_trades_cache, start_date, end_date)
+        results = await database.fetch_all(query)
+        chart_data_extra = [
+            {
+                "time": to_dt(row["time"]),
+                "daily_notional_liquidated_cross": row["daily_notional_liquidated_cross"],
+                "daily_notional_liquidated_isolated": row["daily_notional_liquidated_isolated"],
+            }
+            for row in results
+        ]
 
-    return {"chart_data": chart_data}
+    agg = []
+    for stats in chart_data:
+        for stats_extra in chart_data_extra:
+            if date == date_extra:
+                if "leverage_type" == "cross":
+                    stats["daily_notional_liquidated"] += stats_extra["daily_notional_liquidated_cross"]
+                else:
+                    stats["daily_notional_liquidated"] += stats_extra["daily_notional_liquidated_isolated"]
+        agg.append(stats)
+
+    # Cache result
+    add_data_to_cache(key, agg)
+
+    return {"chart_data": agg}
 
 
 @app.get("/hyperliquid/daily_notional_liquidated_by_coin")

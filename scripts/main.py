@@ -261,7 +261,7 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
 
         if "trades" in file_name:
             df_agg = (
-                df.groupby(["user", "coin", "side", "crossed", "special_trade_type"])
+                df.groupby(["user", "coin", "side", "crossed", "special_trade_type", "tif"])
                 .agg({"px": "mean", "sz": "sum"})
                 .reset_index()
             )
@@ -272,14 +272,18 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
                 "side",
                 "crossed",
                 "special_trade_type",
+                "tif",
                 "mean_px",
                 "sum_sz",
             ]
             df_agg["group_count"] = df.groupby(
-                ["user", "coin", "side", "crossed", "special_trade_type"]
+                ["user", "coin", "side", "crossed", "special_trade_type", "tif"]
             )["user"].transform("count")
             df_agg["time"] = date
             df_agg["usd_volume"] = df_agg["mean_px"] * df_agg["sum_sz"]
+            df_agg["liquidated_volume"] = df["usd_volume"].where(df["tif"] != "liquidationMarket", 0.0)
+            df_agg["liquidated_cross_volume"] = df["usd_volume"].where(df["special_trade_type"] != "liquidatedCross", 0.0)
+            df_agg["liquidated_isolated_volume"] = df["usd_volume"].where(df["special_trade_type"] != "liquidatedIsolated", 0.0)
             update_db_table(db_uri, "non_mm_trades_cache", df_agg, date)
 
         elif "ledger_updates" in file_name:
