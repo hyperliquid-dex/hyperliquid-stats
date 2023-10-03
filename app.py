@@ -1174,7 +1174,7 @@ async def get_cumulative_liquidated_notional(
             agg.append(stats)
         chart_data = agg
     except Exception as e:
-        print("failed", e)
+        print("get_cumulative_liquidated_notional failed:", e)
         pass
 
     # Cache result
@@ -1248,7 +1248,7 @@ async def get_daily_notional_liquidated_total(
             agg.append(stats)
         chart_data = agg
     except Exception as e:
-        print("failed", e)
+        print("get_daily_notional_liquidated_total failed:", e)
 
     # Cache result
     add_data_to_cache(key, chart_data)
