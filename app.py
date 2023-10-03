@@ -302,10 +302,23 @@ async def get_total_notional_liquidated(
     query = apply_filters(query, liquidations_cache, start_date, end_date)
     result = await database.fetch_one(query)
 
-    # Cache result
-    add_data_to_cache(key, result["total_notional_liquidated"])
+    total_notional_liquidated = result["total_notional_liquidated"]
+    try:
+        query = select(
+            func.sum(non_mm_trades_cache.c.liquidated_volume).label(
+                "total_notional_liquidated"
+            )
+        ).select_from(non_mm_trades_cache)
+        query = apply_filters(query, non_mm_trades_cache, start_date, end_date)
+        result_extra = await database.fetch_one(query)
+        total_notional_liquidated += result_extra["total_notional_liquidated"]
+    except Exception as e:
+        pass
 
-    return {"total_notional_liquidated": result["total_notional_liquidated"]}
+    # Cache result
+    add_data_to_cache(key, total_notional_liquidated)
+
+    return {"total_notional_liquidated": total_notional_liquidated}
 
 
 @app.get("/hyperliquid/cumulative_usd_volume")
@@ -1148,6 +1161,22 @@ async def get_cumulative_liquidated_notional(
             liquidations_cache, "sum_liquidated_ntl_pos", start_date, end_date, None
         )
 
+    try:
+        async with database.transaction():
+            chart_data_extra = await get_cumulative_chart_data(
+                non_mm_trades_cache, "liquidated_volume", start_date, end_date, None
+            )
+        agg = []
+        for stats in chart_data:
+            for stats_extra in chart_data_extra:
+                if stats["time"] == stats_extra["time"] and stats_extra["cumulative"] is not None:
+                    stats["cumulative"] += stats_extra["cumulative"]
+            agg.append(stats)
+        chart_data = agg
+    except Exception as e:
+        print("get_cumulative_liquidated_notional failed:", e)
+        pass
+
     # Cache result
     add_data_to_cache(key, chart_data)
 
@@ -1189,10 +1218,42 @@ async def get_daily_notional_liquidated_total(
             for row in results
         ]
 
+    try:
+        async with database.transaction():
+            query = (
+                select(
+                    non_mm_trades_cache.c.time,
+                    func.sum(non_mm_trades_cache.c.liquidated_volume).label(
+                        "daily_notional_liquidated"
+                    ),
+                )
+                .group_by(non_mm_trades_cache.c.time)
+                .order_by(non_mm_trades_cache.c.time)
+            )
+            query = apply_filters(query, non_mm_trades_cache, start_date, end_date)
+            results = await database.fetch_all(query)
+            chart_data_extra = [
+                {
+                    "time": to_dt(row["time"]),
+                    "daily_notional_liquidated": row["daily_notional_liquidated"],
+                }
+                for row in results
+            ]
+
+        agg = []
+        for stats in chart_data:
+            for stats_extra in chart_data_extra:
+                if stats["time"] == stats_extra["time"] and stats_extra["daily_notional_liquidated"] is not None:
+                    stats["daily_notional_liquidated"] += stats_extra["daily_notional_liquidated"]
+            agg.append(stats)
+        chart_data = agg
+    except Exception as e:
+        print("get_daily_notional_liquidated_total failed:", e)
+
     # Cache result
     add_data_to_cache(key, chart_data)
 
-    return {"chart_data": chart_data}
+    return { "chart_data": chart_data }
 
 
 @app.get("/hyperliquid/daily_notional_liquidated_by_leverage_type")

@@ -4,6 +4,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.server
+    volumes:
+      - ./app.py:/app/app.py
     ports:
       - 8001:8000
     environment:
