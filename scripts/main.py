@@ -260,6 +260,8 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
             df = pd.read_csv(f)
 
         if "trades" in file_name:
+            if "tif" not in df.columns:
+                df["tif"] = "Gtc"
             df_agg = (
                 df.groupby(["user", "coin", "side", "crossed", "special_trade_type", "tif"])
                 .agg({"px": "mean", "sz": "sum"})
@@ -281,9 +283,7 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
             )["user"].transform("count")
             df_agg["time"] = date
             df_agg["usd_volume"] = df_agg["mean_px"] * df_agg["sum_sz"]
-            df_agg["liquidated_volume"] = df["usd_volume"].where(df["tif"] != "liquidationMarket", 0.0)
-            df_agg["liquidated_cross_volume"] = df["usd_volume"].where(df["special_trade_type"] != "liquidatedCross", 0.0)
-            df_agg["liquidated_isolated_volume"] = df["usd_volume"].where(df["special_trade_type"] != "liquidatedIsolated", 0.0)
+            df_agg["liquidated_volume"] = df_agg["usd_volume"].where(df_agg["tif"] == "LiquidationMarket", 0.0)
             update_db_table(db_uri, "non_mm_trades_cache", df_agg, date)
 
         elif "ledger_updates" in file_name:
@@ -426,7 +426,7 @@ def main():
             latest_date = latest_date.date()
         elif not latest_date:
             drop_base_table(db_uri, table)
-            latest_date = datetime.date.today() - datetime.timedelta(days=85)
+            latest_date = datetime.date.today() - datetime.timedelta(days=80)
 
         dates = generate_dates(latest_date)
         if not len(dates):
