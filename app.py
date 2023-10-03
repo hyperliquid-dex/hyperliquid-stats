@@ -1,7 +1,6 @@
 import json
 from datetime import datetime, time as dtt
 from typing import Optional, List
-import time
 
 from cachetools import TTLCache
 from databases import Database

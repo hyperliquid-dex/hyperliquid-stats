@@ -426,7 +426,7 @@ def main():
             latest_date = latest_date.date()
         elif not latest_date:
             drop_base_table(db_uri, table)
-            latest_date = datetime.date.today() - datetime.timedelta(days=80)
+            latest_date = datetime.date.today() - datetime.timedelta(days=85)
 
         dates = generate_dates(latest_date)
         if not len(dates):
