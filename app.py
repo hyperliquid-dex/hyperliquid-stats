@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, time as dtt
+from datetime import datetime, time as dtt, timedelta, date
 from typing import Optional, List
 
 from cachetools import TTLCache
@@ -14,6 +14,7 @@ from sqlalchemy import (
     func,
     literal,
     union_all,
+    or_,
 )
 from sqlalchemy.sql.expression import desc, select
 from sqlalchemy.sql.functions import coalesce
@@ -73,6 +74,14 @@ app.add_middleware(
 )
 
 cache = TTLCache(maxsize=500, ttl=3600)
+
+
+def fill_date_range(start, end):
+    day_count = (end - start).days + 1
+    dates = []
+    for single_date in [d for d in (start + timedelta(n) for n in range(1, day_count)) if d < end]:
+        dates.append(single_date)
+    return dates
 
 
 def get_data_from_cache(key):
@@ -1167,10 +1176,32 @@ async def get_cumulative_liquidated_notional(
                 non_mm_trades_cache, "liquidated_volume", start_date, end_date, None
             )
         agg = []
+        last_date = None
+
+        original_dates = []
+        chart_data_with_dates = []
         for stats in chart_data:
+            if last_date:
+                dates_between = fill_date_range(last_date, stats["time"])
+                for d in dates_between:
+                    chart_data_with_dates.append({"time": d, "cumulative": 0.0})
+            chart_data_with_dates.append(stats)
+            last_date = stats["time"]
+            original_dates.append(stats["time"].date())
+        dates_between = fill_date_range(last_date, datetime.today())
+        for i in range(0, len(dates_between)-1):
+            chart_data_with_dates.append({"time": dates_between[i], "cumulative": 0.0})
+
+        last_cum_ntl = 0.0
+        for stats in chart_data_with_dates:
+            if stats["cumulative"] > 1.0:
+                last_cum_ntl = stats["cumulative"]
             for stats_extra in chart_data_extra:
                 if stats["time"] == stats_extra["time"] and stats_extra["cumulative"] is not None:
                     stats["cumulative"] += stats_extra["cumulative"]
+                    if stats["time"].date() not in original_dates:
+                        stats["cumulative"] += last_cum_ntl
+                    break
             agg.append(stats)
         chart_data = agg
     except Exception as e:
@@ -1241,7 +1272,20 @@ async def get_daily_notional_liquidated_total(
             ]
 
         agg = []
+        last_date = None
+        chart_data_with_dates = []
         for stats in chart_data:
+            if last_date:
+                dates_between = fill_date_range(last_date, stats["time"])
+                for d in dates_between:
+                    chart_data_with_dates.append({"time": d, "daily_notional_liquidated": 0.0})
+            chart_data_with_dates.append(stats)
+            last_date = stats["time"]
+        dates_between = fill_date_range(last_date, datetime.today())
+        for i in range(0, len(dates_between)-1):
+            chart_data_with_dates.append({"time": dates_between[i], "daily_notional_liquidated": 0.0})
+
+        for stats in chart_data_with_dates:
             for stats_extra in chart_data_extra:
                 if stats["time"] == stats_extra["time"] and stats_extra["daily_notional_liquidated"] is not None:
                     stats["daily_notional_liquidated"] += stats_extra["daily_notional_liquidated"]
@@ -1320,7 +1364,7 @@ async def get_daily_notional_liquidated_by_coin(
                 non_mm_trades_cache.c.coin,
                 func.sum(non_mm_trades_cache.c.usd_volume).label("daily_notional_liquidated"),
             )
-            .where(non_mm_trades_cache.c.special_trade_type == "LiquidatedCross")
+            .where(or_(non_mm_trades_cache.c.special_trade_type == "LiquidatedCross", non_mm_trades_cache.c.tif == "LiquidationMarket"))
             .group_by(non_mm_trades_cache.c.time, non_mm_trades_cache.c.coin)
             .order_by(non_mm_trades_cache.c.time)
         )
@@ -1962,6 +2006,7 @@ async def get_largest_user_trade_count(
                 non_mm_trades_cache.c["user"],
                 func.sum(non_mm_trades_cache.c["group_count"]).label("trade_count"),
             )
+            .filter(non_mm_trades_cache.c["group_count"].isnot(None))
             .group_by(non_mm_trades_cache.c["user"])
             .order_by(desc("trade_count"))
             .limit(1000)
