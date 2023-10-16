@@ -262,6 +262,7 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
         if "trades" in file_name:
             if "tif" not in df.columns:
                 df["tif"] = "Gtc"
+            df["tif"] = df["tif"].fillna("Na")
             df_agg = (
                 df.groupby(["user", "coin", "side", "crossed", "special_trade_type", "tif"])
                 .agg({"px": "mean", "sz": "sum"})
@@ -279,7 +280,7 @@ def update_cache_tables(db_uri: str, file_name: str, date: datetime.date):
                 "sum_sz",
             ]
             df_agg["group_count"] = df.groupby(
-                ["user", "coin", "side", "crossed", "special_trade_type", "tif"]
+                ["user", "coin", "side", "crossed", "special_trade_type"]
             )["user"].transform("count")
             df_agg["time"] = date
             df_agg["usd_volume"] = df_agg["mean_px"] * df_agg["sum_sz"]
